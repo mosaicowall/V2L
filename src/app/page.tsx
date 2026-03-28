@@ -134,7 +134,7 @@ export default function Dashboard() {
                 <button className={`btn-primary ${isLive ? 'stop' : 'start'}`} onClick={toggleStream}>
                   {isLive ? 'STOP STREAM' : 'START LIVE STREAM'}
                 </button>
-                <button className="btn-secondary" onClick={handleAddVideo}>
+               <button className="btn-secondary" onClick={handleAddVideo}>
   ADD VIDEOS
 </button>
               </div>
