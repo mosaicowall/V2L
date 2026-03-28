@@ -6,7 +6,34 @@ export default function Dashboard() {
   const [isLive, setIsLive] = useState(false);
   const [logs, setLogs] = useState<string[]>(['[10:52:01] System Initialized', '[10:52:05] Ready for transmission']);
   const [activeTab, setActiveTab] = useState('stream');
+const handleAddVideo = async () => {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'video/*';
 
+  input.onchange = async (e: any) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const res = await fetch('/api/upload', {
+      method: 'POST',
+      body: formData,
+    });
+
+    const data = await res.json();
+
+    const time = new Date().toLocaleTimeString();
+    setLogs(prev => [
+      ...prev,
+      `[${time}] Uploaded: ${data.name}`
+    ]);
+  };
+
+  input.click();
+};
   const toggleStream = () => {
     const handleAddVideo = async () => {
   const input = document.createElement('input');
