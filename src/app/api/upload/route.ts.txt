@@ -1,0 +1,17 @@
+import { NextResponse } from 'next/server';
+
+export async function POST(req: Request) {
+  const data = await req.formData();
+  const file = data.get('file') as File;
+
+  if (!file) {
+    return NextResponse.json({ error: 'No file uploaded' }, { status: 400 });
+  }
+
+  // For now just return file name (no storage yet)
+  return NextResponse.json({
+    message: 'File received',
+    name: file.name,
+    size: file.size,
+  });
+}
