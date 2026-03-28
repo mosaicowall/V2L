@@ -8,6 +8,34 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState('stream');
 
   const toggleStream = () => {
+    const handleAddVideo = async () => {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'video/*';
+
+  input.onchange = async (e: any) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const res = await fetch('/api/upload', {
+      method: 'POST',
+      body: formData,
+    });
+
+    const data = await res.json();
+
+    const time = new Date().toLocaleTimeString();
+    setLogs(prev => [
+      ...prev,
+      `[${time}] Uploaded: ${data.name} (${Math.round(data.size / 1024)} KB)`
+    ]);
+  };
+
+  input.click();
+};
     setIsLive(!isLive);
     const time = new Date().toLocaleTimeString();
     setLogs(prev => [...prev, `[${time}] ${!isLive ? 'Establishing RTMP connection...' : 'Terminating stream sequence'}`]);
@@ -82,7 +110,9 @@ export default function Dashboard() {
                 <button className={`btn-primary ${isLive ? 'stop' : 'start'}`} onClick={toggleStream}>
                   {isLive ? 'STOP STREAM' : 'START LIVE STREAM'}
                 </button>
-                <button className="btn-secondary">ADD VIDEOS</button>
+                <button className="btn-secondary" onClick={handleAddVideo}>
+  ADD VIDEOS
+</button>
               </div>
             </section>
 
