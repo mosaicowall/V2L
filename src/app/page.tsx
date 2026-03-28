@@ -15,6 +15,30 @@ export default function Dashboard() {
 
   input.onchange = async (e: any) => {
     const file = e.target.files[0];
+    const handleAddVideo = async () => {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'video/*';
+
+  input.onchange = async (e: any) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const res = await fetch('/api/upload', {
+      method: 'POST',
+      body: formData,
+    });
+
+    const data = await res.json();
+
+    console.log('Uploaded:', data.name);
+  };
+
+  input.click();
+};
     if (!file) return;
 
     const formData = new FormData();
