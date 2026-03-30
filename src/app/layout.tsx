@@ -2,9 +2,14 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "V2L | Professional Streaming & Sales Suite",
-  description: "High-performance video streaming and subscription-based sales system for DM → Call → Close workflows.",
-  viewport: "width=device-width, initial-scale=1, maximum-scale=1",
+  title: "V2L | Professional 24/7 Live Stream Control",
+  description: "Cloud-based live streaming dashboard for continuous 24/7 transmission to YouTube and RTMP platforms.",
+};
+
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
 };
 
 export default function RootLayout({

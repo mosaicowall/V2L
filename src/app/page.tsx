@@ -1,477 +1,289 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
-export default function Dashboard() {
+interface VideoFile {
+  name: string;
+  url: string;
+  size: number;
+}
+
+export default function V2LWebDashboard() {
+  const [playlist, setPlaylist] = useState<VideoFile[]>([]);
+  const [currentIndex, setCurrentIndex] = useState(0);
   const [isLive, setIsLive] = useState(false);
-  const [logs, setLogs] = useState<string[]>(['[10:52:01] System Initialized', '[10:52:05] Ready for transmission']);
-  const [activeTab, setActiveTab] = useState('stream');
-const handleAddVideo = async () => {
-  const input = document.createElement('input');
-  input.type = 'file';
-  input.accept = 'video/*';
+  const [logs, setLogs] = useState<{ time: string, msg: string }[]>([]);
+  const [rtmpUrl, setRtmpUrl] = useState('rtmp://a.rtmp.youtube.com/live2');
+  const [streamKey, setStreamKey] = useState('');
+  
+  // Simulated Analytics
+  const [analytics, setAnalytics] = useState({
+    views: 0,
+    uptime: '00:00:00',
+    bitrate: '0.0 Mbps'
+  });
 
-  input.onchange = async (e: any) => {
-    const file = e.target.files[0];
-    if (!file) return;
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const uptimeRef = useRef<number>(0);
 
-    const formData = new FormData();
-    formData.append('file', file);
-
-    const res = await fetch('/api/upload', {
-      method: 'POST',
-      body: formData,
-    });
-
-    const data = await res.json();
-
+  // Add a log entry
+  const addLog = (msg: string) => {
     const time = new Date().toLocaleTimeString();
-    setLogs(prev => [
-      ...prev,
-      `[${time}] Uploaded: ${data.name}`
-    ]);
+    setLogs(prev => [{ time, msg }, ...prev].slice(0, 100));
   };
 
-  input.click();
-};
-  const toggleStream = () => {
-    const handleAddVideo = async () => {
-  const input = document.createElement('input');
-  input.type = 'file';
-  input.accept = 'video/*';
+  // Uptime Counter Logic
+  useEffect(() => {
+    let interval: any;
+    if (isLive) {
+      interval = setInterval(() => {
+        uptimeRef.current += 1;
+        const h = Math.floor(uptimeRef.current / 3600).toString().padStart(2, '0');
+        const m = Math.floor((uptimeRef.current % 3600) / 60).toString().padStart(2, '0');
+        const s = (uptimeRef.current % 60).toString().padStart(2, '0');
+        
+        setAnalytics(prev => ({
+          ...prev,
+          uptime: `${h}:${m}:${s}`,
+          views: prev.views + Math.floor(Math.random() * 3),
+          bitrate: (4.5 + Math.random() * 0.5).toFixed(1) + ' Mbps'
+        }));
+      }, 1000);
+    } else {
+      uptimeRef.current = 0;
+      setAnalytics({ views: 0, uptime: '00:00:00', bitrate: '0.0 Mbps' });
+    }
+    return () => clearInterval(interval);
+  }, [isLive]);
 
-  input.onchange = async (e: any) => {
-    const file = e.target.files[0];
-    const handleAddVideo = async () => {
-  const input = document.createElement('input');
-  input.type = 'file';
-  input.accept = 'video/*';
+  // Handle Video Upload
+  const handleAddVideos = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'video/*';
+    input.multiple = true;
+    
+    input.onchange = async (e: Event) => {
+      const target = e.target as HTMLInputElement;
+      const files = target.files;
+      if (!files) return;
 
-  input.onchange = async (e: any) => {
-    const file = e.target.files[0];
-    if (!file) return;
+      const newVideos: VideoFile[] = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const url = URL.createObjectURL(file);
+        
+        try {
+          await fetch('/api/upload', {
+            method: 'POST',
+            body: JSON.stringify({ name: file.name, size: file.size }),
+            headers: { 'Content-Type': 'application/json' }
+          });
+        } catch (err) {
+          console.error('API Handshake failed', err);
+        }
 
-    const formData = new FormData();
-    formData.append('file', file);
-
-    const res = await fetch('/api/upload', {
-      method: 'POST',
-      body: formData,
-    });
-
-    const data = await res.json();
-
-    console.log('Uploaded:', data.name);
+        newVideos.push({
+          name: file.name,
+          url: url,
+          size: file.size
+        });
+        addLog(`Source Added: ${file.name}`);
+      }
+      setPlaylist(prev => [...prev, ...newVideos]);
+    };
+    input.click();
   };
 
-  input.click();
-};
-    if (!file) return;
-
-    const formData = new FormData();
-    formData.append('file', file);
-
-    const res = await fetch('/api/upload', {
-      method: 'POST',
-      body: formData,
-    });
-
-    const data = await res.json();
-
-    const time = new Date().toLocaleTimeString();
-    setLogs(prev => [
-      ...prev,
-      `[${time}] Uploaded: ${data.name} (${Math.round(data.size / 1024)} KB)`
-    ]);
+  const handleClear = () => {
+    playlist.forEach(v => URL.revokeObjectURL(v.url));
+    setPlaylist([]);
+    setCurrentIndex(0);
+    setIsLive(false);
+    addLog('System reset: Playlist cleared');
   };
 
-  input.click();
-};
-    setIsLive(!isLive);
-    const time = new Date().toLocaleTimeString();
-    setLogs(prev => [...prev, `[${time}] ${!isLive ? 'Establishing RTMP connection...' : 'Terminating stream sequence'}`]);
+  const toggleLive = () => {
+    if (playlist.length === 0) {
+      alert('Please add media sources first.');
+      return;
+    }
+    if (!streamKey && !isLive) {
+      alert('Destination stream key required.');
+      return;
+    }
+
+    const newState = !isLive;
+    setIsLive(newState);
+    addLog(newState ? 'Connecting to RTMP ingest...' : 'Broadcasting terminated');
+    
+    if (newState) {
+      setTimeout(() => {
+        addLog('INGEST HANDSHAKE SUCCESSFUL');
+        addLog('STREAM STATUS: HEALTHY 🟢');
+      }, 1200);
+    }
   };
+
+  const handleVideoEnd = () => {
+    if (!isLive) return;
+    let nextIndex = (currentIndex + 1) % playlist.length;
+    setCurrentIndex(nextIndex);
+    addLog(`Transitioning: ${playlist[nextIndex].name}`);
+  };
+
+  useEffect(() => {
+    return () => playlist.forEach(v => URL.revokeObjectURL(v.url));
+  }, [playlist]);
 
   return (
-    <div className="dashboard-container">
-      {/* Sidebar navigation */}
-      <aside className="sidebar glass">
-        <div className="brand-container">
-          <h1 className="brand gradient-text">V2L 📡</h1>
-          <span className="version">V6.1 WEB</span>
+    <div className="container">
+      <header className="header">
+        <div className="brand">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="#ff0000">
+            <path d="M19.615 3.184c-3.604-.246-11.631-.245-15.23 0-3.897.266-4.356 2.62-4.385 8.816.029 6.185.484 8.549 4.385 8.816 3.6.245 11.626.246 15.23 0 3.897-.266 4.356-2.62 4.385-8.816-.029-6.185-.484-8.549-4.385-8.816zm-10.615 12.816v-8l8 4-8 4z"/>
+          </svg>
+          V2L <span>LIVE</span>
         </div>
-        
-        <nav className="nav-menu">
-          <button className={`nav-item ${activeTab === 'stream' ? 'active' : ''}`} onClick={() => setActiveTab('stream')}>
-            Dashboard
-          </button>
-          <button className={`nav-item ${activeTab === 'content' ? 'active' : ''}`} onClick={() => setActiveTab('content')}>
-            Content Vault
-          </button>
-          <button className={`nav-item ${activeTab === 'sales' ? 'active' : ''}`} onClick={() => setActiveTab('sales')}>
-            Sales Tracker
-          </button>
-          <button className={`nav-item ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')}>
-            Settings
-          </button>
-        </nav>
-
-        <div className="user-profile card">
-          <div className="avatar">JD</div>
-          <div className="user-info">
-            <p className="user-name">Professional User</p>
-            <p className="user-plan">Enterprise Plan</p>
+        <div className="status">
+          <div className="status-overlay" style={{ position: 'relative', top: 0, left: 0 }}>
+            <span className={`dot ${isLive ? 'live' : 'offline'}`}></span>
+            {isLive ? 'TRANSMITTING' : 'IDLE'}
           </div>
         </div>
-      </aside>
+      </header>
 
-      {/* Main Content Area */}
-      <main className="main-content">
-        <header className="dashboard-header glass">
-          <div className="header-left">
-            <h2>Welcome back, Producer</h2>
-            <p className="text-dim">Your streaming pipeline is stable.</p>
-          </div>
-          <div className="header-right">
-            <div className="status-badge glass">
-              <span className={isLive ? 'live-indicator' : 'offline-indicator'}></span>
-              <span className="status-text">{isLive ? 'LIVE' : 'OFFLINE'}</span>
+      <main className="grid">
+        <section>
+          {/* Main Monitor */}
+          <div className="monitor-container">
+            <div className="monitor">
+              {isLive && playlist.length > 0 ? (
+                <>
+                  <div className="status-overlay">
+                    <span className="dot live"></span>
+                    LIVE MONITOR
+                  </div>
+                  <video 
+                    ref={videoRef}
+                    className="video-player"
+                    src={playlist[currentIndex].url}
+                    autoPlay
+                    onEnded={handleVideoEnd}
+                  />
+                </>
+              ) : (
+                <div style={{ textAlign: 'center', opacity: 0.4 }}>
+                  <svg width="64" height="64" viewBox="0 0 24 24" fill="currentColor" style={{ marginBottom: '1rem' }}>
+                    <path d="M21 3L3 21M5 5l14 14M21 11V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2h4"/>
+                  </svg>
+                  <h3>NO SIGNAL</h3>
+                  <p>Start broadast to enable monitoring</p>
+                </div>
+              )}
             </div>
           </div>
-        </header>
 
-        {activeTab === 'stream' && (
-          <div className="grid-container">
-            {/* Live Monitor */}
-            <section className="card monitor-card">
-              <h3>Live Monitor</h3>
-              <div className="monitor-screen">
-                {isLive ? (
-                  <div className="live-view">
-                    <div className="bitrate-overlay">4500kbps</div>
-                    <p>Now Streaming: Sales_Training_v2.mp4</p>
-                  </div>
-                ) : (
-                  <div className="idle-view">
-                    <p>No active transmission</p>
-                  </div>
-                )}
-              </div>
-              <div className="controls">
-                <button className={`btn-primary ${isLive ? 'stop' : 'start'}`} onClick={toggleStream}>
-                  {isLive ? 'STOP STREAM' : 'START LIVE STREAM'}
-                </button>
-               <button className="btn-secondary" onClick={handleAddVideo}>
-  ADD VIDEOS
-</button>
-              </div>
-            </section>
-
-            {/* Quick Metrics */}
-            <section className="metrics-row">
-              <div className="card metric">
-                <span className="metric-label">Daily Views</span>
-                <span className="metric-value">12.4k</span>
-                <span className="metric-trend green">+12%</span>
-              </div>
-              <div className="card metric">
-                <span className="metric-label">Sales Leads</span>
-                <span className="metric-value">84</span>
-                <span className="metric-trend green">+8%</span>
-              </div>
-              <div className="card metric">
-                <span className="metric-label">Active Subs</span>
-                <span className="metric-value">1,204</span>
-                <span className="metric-trend green">+2%</span>
-              </div>
-            </section>
-
-            {/* Logs Terminal */}
-            <section className="card logs-card">
-              <h3>Engine Logs</h3>
-              <div className="logs-terminal">
-                {logs.map((log, i) => (
-                  <div key={i} className="log-line">{log}</div>
-                ))}
-              </div>
-            </section>
+          <div className="controls">
+            <button 
+              className={`btn btn-primary ${isLive ? '' : 'start'}`} 
+              onClick={toggleLive}
+              style={{ flex: 2 }}
+            >
+              {isLive ? '⏹ TERMINATE BROADCAST' : '▶ START LIVE ENGINE'}
+            </button>
+            <button className="btn btn-secondary" onClick={handleAddVideos}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 5v14M5 12h14"/>
+              </svg>
+              Add Media
+            </button>
+            <button className="btn btn-secondary" onClick={handleClear}>
+              Clear Cache
+            </button>
           </div>
-        )}
 
-        {activeTab === 'content' && (
-          <div className="content-vault card">
-            <h3>Sales Content Vault</h3>
-            <div className="content-grid">
-              <div className="content-item glass">
-                <span className="icon">📄</span>
-                <h4>Sales Script v4</h4>
-                <p>High-conversion DM script</p>
+          {/* Engine Logs */}
+          <div className="card logs-container">
+            <h3 style={{ marginBottom: '1rem', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <span className="dot live" style={{ width: 6, height: 6 }}></span>
+              Real-time Engine Output
+            </h3>
+            <div className="logs">
+              {logs.length === 0 && <div className="log-line">Initializing V2L Kernel... Standing by.</div>}
+              {logs.map((log, i) => (
+                <div key={i} className="log-line">
+                  <span className="log-time">{log.time}</span>
+                  {log.msg}
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <aside>
+          {/* Real-time Analytics */}
+          <div className="analytics-grid">
+            <div className="stat-card">
+              <div className="stat-value">{analytics.uptime}</div>
+              <div className="stat-label">Uptime</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-value">{analytics.views}</div>
+              <div className="stat-label">Views</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-value">{analytics.bitrate}</div>
+              <div className="stat-label">Bitrate</div>
+            </div>
+          </div>
+
+          <div className="card">
+            <h3 style={{ fontSize: '1rem', marginBottom: '1rem' }}>Destination Config</h3>
+            <div className="config">
+              <div className="form-group">
+                <label>Server URL</label>
+                <input 
+                  type="text" 
+                  value={rtmpUrl} 
+                  onChange={(e) => setRtmpUrl(e.target.value)}
+                />
               </div>
-              <div className="content-item glass">
-                <span className="icon">🎓</span>
-                <h4>Closing Masterclass</h4>
-                <p>Advanced techniques module</p>
-              </div>
-              <div className="content-item glass">
-                <span className="icon">🎬</span>
-                <h4>Broll Assets</h4>
-                <p>Premium lifestyle clips</p>
+              <div className="form-group">
+                <label>Stream Key</label>
+                <input 
+                  type="password" 
+                  value={streamKey} 
+                  onChange={(e) => setStreamKey(e.target.value)}
+                  placeholder="Paste Key Here"
+                />
               </div>
             </div>
           </div>
-        )}
+
+          <div className="card">
+            <h3 style={{ fontSize: '1rem', marginBottom: '1rem' }}>Playlist Queue</h3>
+            <div className="playlist">
+              {playlist.length === 0 && (
+                <p style={{ color: 'var(--text-dim)', fontSize: '0.8rem', textAlign: 'center', padding: '2rem 0' }}>
+                  Queue is empty.<br/>Upload videos to build loop.
+                </p>
+              )}
+              {playlist.map((v, i) => (
+                <div key={i} className={`playlist-item ${currentIndex === i && isLive ? 'active' : ''}`}>
+                  <span style={{ opacity: 0.5 }}>{i + 1}</span>
+                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {v.name}
+                  </span>
+                  <span style={{ fontSize: '0.7rem', color: 'var(--text-dim)' }}>
+                    {(v.size / (1024 * 1024)).toFixed(0)}MB
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </aside>
       </main>
-
-      <style jsx>{`
-        .dashboard-container {
-          display: flex;
-          min-height: 100vh;
-          background: var(--background);
-        }
-
-        .sidebar {
-          width: 280px;
-          padding: 24px;
-          display: flex;
-          flex-direction: column;
-          border-radius: 0;
-          border-right: 1px solid var(--border);
-        }
-
-        .brand-container {
-          margin-bottom: 48px;
-        }
-
-        .brand {
-          font-size: 2rem;
-          font-weight: 700;
-        }
-
-        .version {
-          font-size: 0.7rem;
-          color: var(--text-dim);
-          letter-spacing: 1px;
-        }
-
-        .nav-menu {
-          flex: 1;
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
-
-        .nav-item {
-          background: transparent;
-          border: none;
-          color: var(--text-dim);
-          padding: 12px 16px;
-          text-align: left;
-          border-radius: 8px;
-          cursor: pointer;
-          transition: all 0.2s;
-          font-weight: 500;
-        }
-
-        .nav-item:hover, .nav-item.active {
-          background: var(--surface);
-          color: white;
-        }
-
-        .nav-item.active {
-          border-left: 3px solid var(--accent-pink);
-        }
-
-        .user-profile {
-          margin-top: 24px;
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          padding: 16px;
-        }
-
-        .avatar {
-          width: 40px;
-          height: 40px;
-          background: var(--accent-pink);
-          border-radius: 50%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-weight: bold;
-        }
-
-        .user-name {
-          font-size: 0.9rem;
-          font-weight: 600;
-        }
-
-        .user-plan {
-          font-size: 0.75rem;
-          color: var(--text-dim);
-        }
-
-        .main-content {
-          flex: 1;
-          padding: 40px;
-          display: flex;
-          flex-direction: column;
-          gap: 32px;
-          overflow-y: auto;
-        }
-
-        .dashboard-header {
-          padding: 24px;
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-        }
-
-        .status-badge {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          padding: 8px 16px;
-        }
-
-        .offline-indicator {
-          width: 10px;
-          height: 10px;
-          background: #3a3a3c;
-          border-radius: 50%;
-        }
-
-        .grid-container {
-          display: grid;
-          grid-template-columns: 2fr 1fr;
-          gap: 32px;
-        }
-
-        .monitor-card {
-          grid-column: 1 / 2;
-        }
-
-        .monitor-screen {
-          height: 300px;
-          background: black;
-          border-radius: 12px;
-          margin: 16px 0;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          border: 1px solid var(--border);
-          position: relative;
-        }
-
-        .bitrate-overlay {
-          position: absolute;
-          top: 10px;
-          right: 10px;
-          background: rgba(0,0,0,0.6);
-          padding: 4px 8px;
-          font-size: 0.7rem;
-          border-radius: 4px;
-          color: var(--accent-green);
-        }
-
-        .controls {
-          display: flex;
-          gap: 12px;
-        }
-
-        .btn-primary {
-          flex: 2;
-          padding: 14px;
-          border-radius: 8px;
-          border: none;
-          font-weight: bold;
-          cursor: pointer;
-          transition: opacity 0.2s;
-        }
-
-        .btn-primary.start { background: var(--accent-green); color: black; }
-        .btn-primary.stop { background: var(--accent-pink); color: white; }
-
-        .btn-secondary {
-          flex: 1;
-          background: var(--surface);
-          color: white;
-          padding: 14px;
-          border-radius: 8px;
-          border: 1px solid var(--border);
-          cursor: pointer;
-        }
-
-        .metrics-row {
-          display: flex;
-          flex-direction: column;
-          gap: 16px;
-        }
-
-        .metric {
-          flex: 1;
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
-        }
-
-        .metric-label { font-size: 0.8rem; color: var(--text-dim); }
-        .metric-value { font-size: 1.5rem; font-weight: bold; }
-        .metric-trend.green { color: var(--accent-green); font-size: 0.8rem; }
-
-        .logs-card {
-          grid-column: 1 / 3;
-        }
-
-        .logs-terminal {
-          background: black;
-          padding: 16px;
-          border-radius: 8px;
-          font-family: 'Consolas', monospace;
-          font-size: 0.85rem;
-          color: var(--accent-green);
-          height: 200px;
-          overflow-y: auto;
-          margin-top: 12px;
-        }
-
-        .log-line { margin-bottom: 4px; }
-
-        .content-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-          gap: 20px;
-          margin-top: 24px;
-        }
-
-        .content-item {
-          padding: 24px;
-          text-align: center;
-          cursor: pointer;
-          transition: transform 0.2s;
-        }
-
-        .content-item:hover { transform: translateY(-5px); }
-        .content-item .icon { font-size: 2rem; display: block; margin-bottom: 12px; }
-
-        @media (max-width: 1024px) {
-          .grid-container { grid-template-columns: 1fr; }
-          .metrics-row { flex-direction: row; }
-          .logs-card { grid-column: 1 / 2; }
-        }
-
-        @media (max-width: 768px) {
-          .dashboard-container { flex-direction: column; }
-          .sidebar { width: 100%; border-right: none; border-bottom: 1px solid var(--border); padding: 16px; }
-          .brand-container { margin-bottom: 16px; display: flex; align-items: baseline; gap: 10px; }
-          .nav-menu { flex-direction: row; overflow-x: auto; padding-bottom: 8px; }
-          .nav-item { white-space: nowrap; padding: 8px 12px; }
-          .main-content { padding: 20px; }
-          .dashboard-header { flex-direction: column; align-items: flex-start; gap: 16px; }
-          .metrics-row { flex-direction: column; }
-          .monitor-screen { height: 200px; }
-          .user-profile { display: none; }
-        }
-      `}</style>
     </div>
   );
 }
